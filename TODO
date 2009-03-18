@@ -1,8 +1,6 @@
 TODO:
   - write specs, jerkface
 
-  - geospatial searching
-    - should work transparently with GeoRuby
   - additional configuration options
     - weights for various fields
     - map of object type to attribute value for grouping
@@ -20,7 +18,4 @@ TODO:
       - integration with the Sequel::Model equivalent of named_scope
     - Datamapper
       - write adapter
-  
-  - use official Sphinx Ruby API instead of Riddle
-    - Riddle sucks
   
