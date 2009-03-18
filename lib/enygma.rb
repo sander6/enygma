@@ -4,6 +4,9 @@ $:.unshift File.dirname(__FILE__)
 
 require 'api/sphinx'
 
+require 'enygma/version'
+
+require 'enygma/extensions/basic_object'
 require 'enygma/extensions/enumerable'
 require 'enygma/extensions/float'
 
@@ -33,8 +36,6 @@ module Enygma
     end
     
   end
-  
-  
   
   def self.indexify(name)
     name.to_s =~ %r{#{Enygma::Configuration.index_suffix}$} ? name.to_s : name.to_s + Enygma::Configuration.index_suffix

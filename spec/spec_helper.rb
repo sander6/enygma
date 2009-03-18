@@ -1,5 +1,6 @@
 require 'rubygems'
-require File.expand_path(File.dirname(__FILE__) + '/../enygma')
+require 'spec'
+require File.expand_path(File.dirname(__FILE__) + '/../lib/enygma')
 require 'mocha'
 
 Spec::Runner.configure do |config|
