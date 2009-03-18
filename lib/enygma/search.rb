@@ -1,6 +1,6 @@
 module Enygma
   
-  class Search
+  class Search < Enygma::BasicObject
 
     class InvalidFilter < StandardError; end
 
@@ -22,9 +22,7 @@ module Enygma
       :attr   => Sphinx::Client::SPH_GROUPBY_ATTR,
       :pair   => Sphinx::Client::SPH_GROUPBY_ATTRPAIR
     }
-    
-    instance_methods.each { |m| undef_method m unless %w{ __id__ __send__ }.include?(m) }
-    
+        
     def initialize(config, overrides = {})
       @config = config
       @db = {
@@ -136,6 +134,56 @@ module Enygma
       self
     end
     
+    def within(distance)
+      Enygma::Search::GeoDistanceProxy.new(self, distance)
+    end
+    
+    class GeoDistanceProxy < Enygma::BasicObject
+      UNIT_CONVERSION = {
+        :meters     => Proc.new { |d| d },
+        :kilpmeters => Proc.new { |d| d / 1000.0 },
+        :feet       => Proc.new { |d| d * 0.3048 },
+        :miles      => Proc.new { |d| d / 1609.344 },
+        :yards      => Proc.new { |d| d * 0.9144 },
+      }
+      
+      def initialize(delegate, distance)
+        @delegate = delegate
+        @distance = distance
+        @units = :meters
+      end
+      
+      def meters;     @units = :meters;     end
+      def kilometers; @units = :kilometers; end
+      def feet;       @units = :feet;       end
+      def miles;      @units = :miles;      end
+      def yards;      @units = :yards;      end
+      
+      
+      def of(point_or_lat, lng = nil)
+        if lng.nil?
+          if point_or_lat.respond_to?(:lat) && point_or_lat.respond_to?(:lng)
+            lat, lng = point_or_lat.lat, point_or_lat.lng
+          elsif point_or_lat.respond_to?(:coordinates) && point_or_lat.coordinates.respond_to?(:lat) && point_or_lat.coordinates.respond_to?(:lng)
+            lat, lng = point_or_lat.coordinates.lat, point_or_lat.coordinates.lng
+          elsif point_or_lat.respond_to?(:point) && point_or_lat.point.respond_to?(:lat) && point_or_lat.point.respond_to?(:lng)
+            lat, lng = point_or_lat.point.lat, point_or_lat.point.lng
+          else
+            raise ArgumentError, "#{point_or_lat.inspect} doesn't seem to be a geometry-enabled object!"
+          end
+        else
+          lat, lng = point_or_lat, lng
+        end
+        delegate.__geo_anchor__(lat, lng)
+        delegate.filter('@geodist', UNIT_CONVERSION[@units][@distance])
+        delegate
+      end
+      
+      def method_missing(*args)
+        raise NoMethodError, "You're in the middle of setting a geodistance! Make sure to call within(distance).of(point) before continuing to call Enygma::Search methods."
+      end
+    end
+    
     def around(*args)
       if defined?(GeoRuby) && args.first.is_a?(GeoRuby::SimpleFeatures::Point)
         point = args[0]
@@ -155,6 +203,10 @@ module Enygma
     end
         
     private
+    
+    def __geo_anchor__(lat, lng)
+      @sphinx[:client].SetGeoAnchor(@config.latitude, @config.longitude, lat, lng)      
+    end
     
     def __query_sphinx__
       @tables.inject({}) do |agg, table|
