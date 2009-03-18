@@ -25,15 +25,15 @@ That being said, Enygma plans to eventually support guided Sphinx configuration.
 
 #### Configuration ####
 
-Take your favorite class and `extend Enygma`. Then declare your global and class-specific configuration. An example follows:
+Take your favorite class and `include Enygma`. Then declare your global and class-specific configuration. For example:
 
     Enygma::Configuration.global do
-      adapter :sequel
-      database "postgres://user@localhost/db"
+      adapter   :sequel
+      database  "postgres://user@localhost/db"
     end
 
     class SearchyThing
-      extend Enygma
+      include Enygma
         
       configure_enygma do
         sphinx[:host] = 'localhost'
@@ -44,7 +44,7 @@ Take your favorite class and `extend Enygma`. Then declare your global and class
       end    
     end
 
-This appends the `search` method to the extended class.
+This appends the `search` method to the included class.
 
 #### Searching ####
 
@@ -123,7 +123,7 @@ Classes with Enygma::Resource can call `include` to include assocations with the
 
     Post.search.for("turkey").include(:comments)
 
-More in-depth per-adapter superpower detailed below:
+More in-depth per-adapter superpowers detailed below:
 
 #### ActiveRecord::Base ####
 
