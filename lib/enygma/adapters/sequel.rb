@@ -6,7 +6,11 @@ module Enygma
     class SequelAdapter < Enygma::Adapters::AbstractAdapter
       
       def connect!(db)
-        @database = Sequel.connect(db)
+        if db == :sqlite
+          @database = Sequel.sqlite
+        else
+          @database = Sequel.connect(db)
+        end
       end
       
       def query(*args)
