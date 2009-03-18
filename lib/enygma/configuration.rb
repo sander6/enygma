@@ -2,9 +2,15 @@ module Enygma
   
   class Configuration
     
-    class InvalidAdapterName
+    class InvalidAdapterName < StandardError
       def message
         "Invalid adapter type! Allowable adapters are #{Enygma::Configuration::ADAPTERS.join(', ')}."
+      end
+    end
+    
+    class AdapterNotSet < StandardError
+      def message
+        "You haven't chosen an adapter to use. Available adapters are #{Enygma::Configuration::ADAPTERS.join(', ')}."
       end
     end
     
@@ -17,7 +23,7 @@ module Enygma
     end
     
     @@target_attr = 'item_id'
-    def target_attr(name = nil)
+    def self.target_attr(name = nil)
       return @@target_attr if name.nil?
       @@target_attr = name
     end
@@ -25,6 +31,11 @@ module Enygma
     @@adapter = nil
     def self.adapter(name = nil)
       return @@adapter if name.nil?
+      if name == :none
+        @@database = nil
+        @@adapter = nil
+        return @@adapter
+      end
       raise InvalidAdapterName unless ADAPTERS.include?(name)
       case name
       when :sequel
@@ -42,19 +53,31 @@ module Enygma
     @@database = nil    
     def self.database(db = nil)
       return @@database if db.nil?
-      @@adapter.connect!(db)
+      raise AdapterNotSet unless @@adapter
+      @@database = @@adapter.connect!(db)
     end
     
     @@sphinx = { :port => 3312, :host => "localhost" }
     def self.sphinx
       @@sphinx
     end
+    class << @@sphinx
+      def port(portname = nil)
+        return self[:port] if portname.nil?
+        self[:port] = portname
+      end
+      
+      def host(hostname = nil)
+        return self[:host] if hostname.nil?
+        self[:host] = hostname
+      end
+    end
     
     def self.global(&config)
       self.instance_eval(&config)
     end
     
-    attr_reader :tables, :indexes, :adapter, :target_attr, :latitude, :longitude
+    attr_reader :database, :adapter, :tables, :indexes, :target_attr, :weights, :latitude, :longitude
     
     def initialize(database = nil, adapter = nil, tables = nil, indexes = nil, target_attr = nil, latitude = 'lat', longitude = 'lng')
       @database     = database    || @@database
@@ -71,7 +94,7 @@ module Enygma
       @tables << table_name
       if options[:index] || options[:indexes]
         idxs = options[:index] || options[:indexes]
-        @indexes[table_name] = [ *idxs ]
+        @indexes[table_name] = [ *idxs ].collect { |idx| idx.to_s }
       elsif !options[:skip_index]
         idx = Enygma.indexify(table_name)
         @indexes[table_name] = [ idx ]
@@ -80,7 +103,7 @@ module Enygma
     end
     
     def weight(attribute, value)
-      @weights[attribues] = value
+      @weights[attribute.to_s] = value
     end
     
     def index(table, index)
