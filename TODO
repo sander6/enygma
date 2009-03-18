@@ -1,0 +1,26 @@
+TODO:
+  - write specs, jerkface
+
+  - geospatial searching
+    - should work transparently with GeoRuby
+  - additional configuration options
+    - weights for various fields
+    - map of object type to attribute value for grouping
+  - limit
+  
+  - adapters
+    - injection under ActiveRecord::Base, Sequel::Model and Datamapper::Resource-enabled classes
+      - inherent scoping
+      - per-class configuration
+        - look at Camping's renamed-copy-module thing
+      - unobtrusive method injection
+    - ActiveRecord
+      - integration with named_scope
+    - Sequel
+      - integration with the Sequel::Model equivalent of named_scope
+    - Datamapper
+      - write adapter
+  
+  - use official Sphinx Ruby API instead of Riddle
+    - Riddle sucks
+  
