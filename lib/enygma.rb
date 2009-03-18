@@ -16,7 +16,7 @@ require 'enygma/search'
 
 module Enygma
   
-  def self.extended(base)
+  def self.included(base)
     base.instance_variable_set(:@enygma_configuration, Enygma::Configuration.new)
     base.__send__(:extend, Enygma::ClassMethods)
   end
