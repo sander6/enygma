@@ -62,6 +62,7 @@ module Enygma
       @tables       = tables      || []
       @indexes      = indexes     || {}
       @target_attr  = target_attr || @@target_attr
+      @weights      = {}
       @latitude     = latitude
       @longitude    = longitude
     end
@@ -76,6 +77,10 @@ module Enygma
         @indexes[table_name] = [ idx ]
       end
       return @tables
+    end
+    
+    def weight(attribute, value)
+      @weights[attribues] = value
     end
     
     def index(table, index)
