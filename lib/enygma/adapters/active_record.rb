@@ -5,17 +5,21 @@ module Enygma
   module Adapters
     
     class ActiveRecordAdapter < Enygma::Adapters::AbstractAdapter
+      
+      class InvalidActiveRecordDatabase < StandardError
+        def message
+          "The provided database object isn't an ActiveRecord::Base subclass!"
+        end
+      end
 
-      def connect(options)
-        ActiveRecord::Base.establish_connection(options)
+      def connect!(klass)        
+        raise InvalidActiveRecordDatabase unless klass.is_a?(Class) && klass.ancestors.include?(ActiveRecord::Base)
+        @database = klass
       end
       
       def query(*args)
         options = args.extract_options!
-        raise UnknownActiveRecordClass unless defined? options[:table].to_s.constantize
-        klass = options[:table].to_s.constantize
-        query = klass.scoped(:conditions => { :id => options[:ids] })
-        query = query.scoped(:select => options[:find_options][:select].collect(&:to_s).join(',')) if options[:find_options][:select]
+        @database.scoped(:conditions => { :id => options[:ids] })
       end
       
       def get_attribute(record, attribute)
@@ -23,6 +27,5 @@ module Enygma
       end
 
     end
-    
   end
 end

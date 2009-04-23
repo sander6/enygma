@@ -14,6 +14,12 @@ module Enygma
       end
     end
     
+    class TooManyTables < StandardError
+      def message
+        "A class including Enygma::Resource can only search on one table."
+      end
+    end
+    
     ADAPTERS = [ :sequel, :active_record, :datamapper ]
     
     @@index_suffix = '_idx'
@@ -77,24 +83,54 @@ module Enygma
       self.instance_eval(&config)
     end
     
-    attr_reader :database, :adapter, :tables, :indexes, :target_attr, :weights, :latitude, :longitude
+    attr_reader :database, :adapter, :tables, :indexes, :target_attr, :match_mode, :weights, :latitude, :longitude, :resource
     
-    def initialize(database = nil, adapter = nil, tables = nil, indexes = nil, target_attr = nil, latitude = 'lat', longitude = 'lng')
-      @database     = database    || @@database
-      @adapter      = adapter     || @@adapter
-      @tables       = tables      || []
-      @indexes      = indexes     || {}
-      @target_attr  = target_attr || @@target_attr
+    def initialize
+      @adapter      = @@adapter
+      @database     = @@database
+      @tables       = []
+      @indexes      = {}
+      @target_attr  = @@target_attr
+      @match_mode   = :all
       @weights      = {}
-      @latitude     = latitude
-      @longitude    = longitude
+      @latitude     = 'lat'
+      @longitude    = 'lng'
+      @resource     = false
     end
-        
+    
+    def adapter(name = nil)
+      return @adapter if name.nil?
+      if name == :none
+        @database = nil
+        @adapter = nil
+        return @adapter
+      end
+      raise InvalidAdapterName unless ADAPTERS.include?(name)
+      case name
+      when :sequel
+        require 'enygma/adapters/sequel'
+        @adapter = Enygma::Adapters::SequelAdapter.new
+      when :active_record
+        require 'enygma/adapters/active_record'
+        @adapter = Enygma::Adapters::ActiveRecordAdapter.new
+      when :datamapper
+        require 'enygma/adapters/datamapper'
+        @adapter = Enygma::Adapters::DatamapperAdapter.new      
+      end      
+    end
+    
+    def database(db = nil)
+      return @database if db.nil?
+      raise AdapterNotSet unless @adapter
+      @database = @adapter.connect!(db)
+    end
+    
     def table(table_name, options = {})
-      @tables << table_name
+      @tables << table_name unless @tables.include?(table_name)
+      raise TooManyTables if @resource && @tables.size > 1
       if options[:index] || options[:indexes]
         idxs = options[:index] || options[:indexes]
-        @indexes[table_name] = [ *idxs ].collect { |idx| idx.to_s }
+        @indexes[table_name] = [ *idxs ].collect { |idx| Enygma.indexify(idx) }
       elsif !options[:skip_index]
         idx = Enygma.indexify(table_name)
         @indexes[table_name] = [ idx ]
@@ -108,6 +144,25 @@ module Enygma
     
     def index(table, index)
       @indexes[table] = [ Enygma.indexify(index) ]
+    end
+    
+    def match_mode(mode = nil)
+      return @match_mode if mode.nil?
+      @match_mode = mode
+    end
+    
+    def target_attr(name = nil)
+      return @target_attr if name.nil?
+      @target_attr = name
+    end
+    
+    def resource(bool = nil)
+      return @resource if bool.nil?
+      @resource = bool
+    end
+    
+    def resource?
+      @resource
     end
     
     def sphinx

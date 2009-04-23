@@ -1,9 +1,31 @@
 module Enygma
   
-  class Search < Enygma::BasicObject
+  class Search
 
-    class InvalidFilter < StandardError; end
+    class InvalidFilter < StandardError
+      def message
+        "You can only filter on an Array or Range of values."
+      end
+    end
 
+    class InvalidSphinxQuery < StandardError
+      def message
+        "Sphinx rejected the query; perhaps you're trying to search on a non-existent index?"
+      end
+    end
+
+    class MultipleResultSetsError < StandardError
+      def message
+        "Results were returned for multiple tables, so some attributes are ambiguous."
+      end
+    end
+    
+    class AmbiguousIndexes < StandardError
+      def message
+        "You haven't specified which indexes go to which table!"
+      end
+    end
+    
     MATCH_MODES = {
       :all        => Sphinx::Client::SPH_MATCH_ALL,
       :any        => Sphinx::Client::SPH_MATCH_ANY,
@@ -22,38 +44,44 @@ module Enygma
       :attr   => Sphinx::Client::SPH_GROUPBY_ATTR,
       :pair   => Sphinx::Client::SPH_GROUPBY_ATTRPAIR
     }
-        
+       
     def initialize(config, overrides = {})
-      @config = config
-      @db = {
-              :adapter      => @config.adapter
-            }
+      @db     = {
+                  :adapter      => config.adapter
+                }
       @sphinx = {
                   :client       => Sphinx::Client.new,
-                  :indexes      => @config.indexes,
+                  :indexes      => config.indexes,
                   :term         => overrides[:term] || "",
-                  :target_attr  => @config.target_attr,      
+                  :target_attr  => config.target_attr,
+                  :match_mode   => MATCH_MODES[config.match_mode]
                 }
       
-      @sphinx[:client].SetServer(@config.sphinx[:host], @config.sphinx[:port])
-      @sphinx[:client].SetMatchMode(MATCH_MODES[:all])
-      
-      @tables       = overrides[:tables] || @config.tables
-      
-      @postprocess  = [ Proc.new { |object| object } ]
-      @postprocess << Proc.new { |results_hash| results_hash[@tables.first] } if @tables.size == 1
+      @latitude   = config.latitude
+      @longitude  = config.longitude
+      @resource   = config.resource
+
+      @sphinx[:client].SetServer(config.sphinx[:host], config.sphinx[:port])
+      @sphinx[:client].SetMatchMode(@sphinx[:match_mode])
+
+      @return_attributes  = []
+      @tables             = overrides[:tables].empty? ? config.tables : overrides[:tables]
     end
     
     def run
-      __postprocess__(__query_database__(__query_sphinx__))
+      if @resource
+        query_database(query_sphinx)
+      else
+        postprocess(query_database(query_sphinx))
+      end
     end
     
     def method_missing(name, *args, &block)
       self.run.__send__(name, *args, &block)
-    end    
+    end
     
     def count
-      results = __query_sphinx__
+      results = query_sphinx
       if results.size == 1
         results.values.first.size
       else
@@ -68,19 +96,23 @@ module Enygma
     
     def in(*tables)
       @tables = tables
-      if @tables.size == 1
-        @postprocess << Proc.new { |results_hash| results_hash[@tables.first] }
-      end
       self
     end
     
     def using_match_mode(match_mode)
-      @sphinx[:client].SetMatchMode(MATCH_MODES[@sphinx[:match_mode]])
+      @sphinx[:match_mode] = MATCH_MODES[match_mode]
+      @sphinx[:client].SetMatchMode(@sphinx[:match_mode])
       self
     end
 
     def using_indexes(*indexes)
-      @sphinx[:indexes] = indexes.collect { |idx| Enygma.indexify(idx) }
+      case indexes
+      when Hash
+        @sphinx[:indexes] = indexes.inject({}) { |agg, (table, idx)| agg.merge({ table => Enygma.indexify(idx) }) }
+      when Array
+        raise AmbiguousIndexes unless @tables.size == 1
+        @sphinx[:indexes] = { @tables.first => indexes.collect { |idx| Enygma.indexify(idx) } }
+      end
       self
     end
     alias_method :using_index,  :using_indexes
@@ -95,6 +127,8 @@ module Enygma
         else
           @sphinx[:client].SetFilterRange(attribute, values.begin.to_i, values.end.to_i, exclude)
         end
+      when Numeric
+        @sphinx[:client].SetFilterFloatRange(attribute, 0.0, values.to_f, exclude)
       else
         raise InvalidFilter
       end
@@ -111,21 +145,7 @@ module Enygma
     end
     
     def return(*attributes)
-      if attributes.size == 1
-        @postprocess << Proc.new { |records|
-          records.collect do |record|
-            @db[:adapter].get_attribute(record, attributes.first)
-          end
-        }
-      else
-        @postprocess << Proc.new { |records|
-          records.collect do |record|
-            attributes.inject({}) do |hash, attribute|
-              hash.merge({ attribute => @db[:adapter].get_attribute(record, attribute) })
-            end
-          end
-        }
-      end
+      @return_attributes = attributes
       self
     end
     
@@ -135,55 +155,9 @@ module Enygma
     end
     
     def within(distance)
-      Enygma::Search::GeoDistanceProxy.new(self, distance)
+      Enygma::GeoDistanceProxy.new(self, distance)
     end
-    
-    class GeoDistanceProxy < Enygma::BasicObject
-      UNIT_CONVERSION = {
-        :meters     => Proc.new { |d| d },
-        :kilpmeters => Proc.new { |d| d / 1000.0 },
-        :feet       => Proc.new { |d| d * 0.3048 },
-        :miles      => Proc.new { |d| d / 1609.344 },
-        :yards      => Proc.new { |d| d * 0.9144 },
-      }
-      
-      def initialize(delegate, distance)
-        @delegate = delegate
-        @distance = distance
-        @units = :meters
-      end
-      
-      def meters;     @units = :meters;     end
-      def kilometers; @units = :kilometers; end
-      def feet;       @units = :feet;       end
-      def miles;      @units = :miles;      end
-      def yards;      @units = :yards;      end
-      
-      
-      def of(point_or_lat, lng = nil)
-        if lng.nil?
-          if point_or_lat.respond_to?(:lat) && point_or_lat.respond_to?(:lng)
-            lat, lng = point_or_lat.lat, point_or_lat.lng
-          elsif point_or_lat.respond_to?(:coordinates) && point_or_lat.coordinates.respond_to?(:lat) && point_or_lat.coordinates.respond_to?(:lng)
-            lat, lng = point_or_lat.coordinates.lat, point_or_lat.coordinates.lng
-          elsif point_or_lat.respond_to?(:point) && point_or_lat.point.respond_to?(:lat) && point_or_lat.point.respond_to?(:lng)
-            lat, lng = point_or_lat.point.lat, point_or_lat.point.lng
-          else
-            raise ArgumentError, "#{point_or_lat.inspect} doesn't seem to be a geometry-enabled object!"
-          end
-        else
-          lat, lng = point_or_lat, lng
-        end
-        delegate.__geo_anchor__(lat, lng)
-        delegate.filter('@geodist', UNIT_CONVERSION[@units][@distance])
-        delegate
-      end
-      
-      def method_missing(*args)
-        raise NoMethodError, "You're in the middle of setting a geodistance! Make sure to call within(distance).of(point) before continuing to call Enygma::Search methods."
-      end
-    end
-    
+        
     def around(*args)
       if defined?(GeoRuby) && args.first.is_a?(GeoRuby::SimpleFeatures::Point)
         point = args[0]
@@ -198,33 +172,60 @@ module Enygma
         radius = args[2]
       end
       radius = (0..radius) unless radius.is_a?(Range)
-      @sphinx[:client].SetGeoAnchor(@config.latitude, @config.longitude, lat, lng)
+      @sphinx[:client].SetGeoAnchor(@latitude, @longitude, lat, lng)
       self.filter('@geodist', radius)
     end
         
     private
     
-    def __geo_anchor__(lat, lng)
-      @sphinx[:client].SetGeoAnchor(@config.latitude, @config.longitude, lat, lng)      
+    def geo_anchor(lat, lng)
+      @sphinx[:client].SetGeoAnchor(@latitude, @longitude, lat, lng)      
     end
     
-    def __query_sphinx__
+    def query_sphinx
       @tables.inject({}) do |agg, table|
         sphinx_response = @sphinx[:client].Query(@sphinx[:term], @sphinx[:indexes][table].join(', '))
+        raise InvalidSphinxQuery unless sphinx_response
         agg.merge({ table => sphinx_response['matches'] })
       end
     end
     
-    def __query_database__(results)
-      results.inject({}) do |agg, (table, matches)|
-        record_ids = matches.collect { |m| m['attrs'][@sphinx[:target_attr]] }.uniq
-        agg.merge({ table => @db[:adapter].query(:table => table, :ids => record_ids, :find_options => @db) })
+    def query_database(results)
+      if @resource
+        record_ids = results.values.first.collect { |m| m['attrs'][@sphinx[:target_attr]] }.uniq
+        @db[:adapter].query(:ids => record_ids)
+      else
+        results.inject({}) do |agg, (table, matches)|
+          record_ids = matches.collect { |m| m['attrs'][@sphinx[:target_attr]] }.uniq
+          agg.merge({ table => @db[:adapter].query(:table => table, :ids => record_ids) })
+        end
       end
     end
     
-    def __postprocess__(results)
-      @postprocess.inject(results) { |results, process| process[results] }
-    end    
+    def postprocess(results)
+      results = dehashify_results(results) if results.keys.size == 1
+      results = extract_attributes(results) unless @return_attributes.empty?
+      return results
+    end
+    
+    def extract_attributes(results)
+      raise MultipleResultSetsError unless results.is_a?(Array)
+      if @return_attributes.size == 1
+        results.collect do |record|
+          @db[:adapter].get_attribute(record, @return_attributes.first)
+        end
+      else
+        results.collect do |record|
+          @return_attributes.inject({}) do |hash, attribute|
+            hash.merge({ attribute => @db[:adapter].get_attribute(record, attribute) })
+          end
+        end
+      end
+    end
+    
+    def dehashify_results(results)
+      results.respond_to?(:values) ? results.values.flatten : results
+    end
   end
   
 end
