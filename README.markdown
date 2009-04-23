@@ -99,7 +99,7 @@ Or you can pass any object which responds to `coordinates`, which should in turn
     arbys = Place.filter(:name => "Arby's").first
     SearchyThing.search(:places).around(arbys, 500)
 
-Should you want to, you can search within an annulus (the area bewteen two concentric circles) by passing a range as the radius argument.
+Should you want to, you can search within an annulus (the area between two concentric circles) by passing a range as the radius argument.
 
     SearchyThing.search(:places).around(point, 500..1000)
 
