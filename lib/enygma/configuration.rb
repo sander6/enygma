@@ -19,6 +19,12 @@ module Enygma
         "A class including Enygma::Resource can only search on one table."
       end
     end
+
+    class AmbiguousIndex < StandardError
+      def message
+        "You must specify which table goes with what index."
+      end
+    end
     
     ADAPTERS = [ :sequel, :active_record, :datamapper ]
     
@@ -131,9 +137,9 @@ module Enygma
       if options[:index] || options[:indexes]
         idxs = options[:index] || options[:indexes]
         @indexes[table_name] = [ *idxs ].collect { |idx| Enygma.indexify(idx) }
-      elsif !options[:skip_index]
-        idx = Enygma.indexify(table_name)
-        @indexes[table_name] = [ idx ]
+      # elsif !options[:skip_index]
+      #   idx = Enygma.indexify(table_name)
+      #   @indexes[table_name] = [ idx ]
       end
       return @tables
     end
@@ -142,8 +148,11 @@ module Enygma
       @weights[attribute.to_s] = value
     end
     
-    def index(table, index)
-      @indexes[table] = [ Enygma.indexify(index) ]
+    def index(index, table = nil)
+      raise AmbiguousIndex if table.nil? && @tables.size != 1
+      table ||= @tables.first
+      @indexes[table] ||= []
+      @indexes[table] << Enygma.indexify(index)
     end
     
     def match_mode(mode = nil)
