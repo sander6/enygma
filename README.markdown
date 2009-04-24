@@ -1,5 +1,7 @@
 # Enygma: a Sphinx toolset #
 
+*NOTE: Enygma is currently in a state of disarray, since I hacked it together just enough to work with ActiveRecord. The specs shouldn't run and coverage is inexcusable, which I feel bad about. I'll clean things up incrementally. Until then, consider it in alpha.*
+
 Sphinx is awesome, but it's sometimes kind of unwieldly to use, requiring a bunch of moving parts just to see what a certain Sphinx query would yank out of your database. Some solutions for working with Sphinx exist, but it's hard to justify spinning up an entire new Rails project just to search through some HTML documents you've got lying on your hard drive.
 
 For this reason, Enygma exists to be an awesome little Sphinx toolset usable just about anywhere.
@@ -85,27 +87,42 @@ Enygma's geospatial searching abilities are naive at present.
 
 To search in a given radius of a latitude/longitude pair:
 
-    SearchyThing.search(:places).around(40.747778, -73.985556, 500)
+    SearchyThing.search(:places).within(500).of(40.747778, -73.985556)
 
-Where `500` means 500 meters. Latitudes and longitudes should be given in degrees, which will be converted to the radians required by Sphinx.
+Where `500` means 500 meters. You can set different units like so:
+
+    SearchyThing.search(:places).within(1000).feet.of(40.747778, -73.985556)
+
+Latitudes and longitudes should be given in degrees, which will be converted to the radians required by Sphinx.
 
 Instead of a lat/lng pair, you can pass a GeoRuby::SimpleFeatures::Point.
 
     point = GeoRuby::SimpleFeatures::Point.from_lon_lat(-73.985556, 40.747778)
-    SearchyThing.search(:places).around(point, 500)
+    SearchyThing.search(:places).within(500).of(point)
 
 Or you can pass any object which responds to `coordinates`, which should in turn respond to both `lat` and `lng` (good for, say, ActiveRecord models with a point attribute).
 
     arbys = Place.filter(:name => "Arby's").first
-    SearchyThing.search(:places).around(arbys, 500)
+    SearchyThing.search(:places).within(500).of(arbys)
 
 Should you want to, you can search within an annulus (the area between two concentric circles) by passing a range as the radius argument.
 
     SearchyThing.search(:places).around(point, 500..1000)
 
-***
-## Speculative features ##
+#### Kicker Methods ####
 
+An Engyma::Search instance (the things that's returned when you call `search`) will delay execution of the Sphinx query and database query until you call the 'kicker' method `run`. If you send the Search object a missing method, it will run the search and then pass the method on the the return value of the query (what's returned differs slightly based on your database adapter, see below).
+
+For example:
+
+    Model.search.for("Arby's") # => returns an Enygma::Search object
+    Model.search.for("Arby's").run # => returns an array of Models
+    Model.search.for("Arby's").first # => returns the first Model found
+
+A gotcha: if somehow you have, for example, an ActiveRecord::Base named\_scope that matches the name of a Search method, say `filter`, you should explicitly call `run` on the Search object.
+
+    Model.search.for("Arby's").filter(...) # => sets a Sphinx filter
+    Model.search.for("Arby's").run.filter(...) # => runs the filter named_scope
 
 ### Resources ###
 
@@ -119,15 +136,26 @@ Including Enygma::Resource in one of the above types of classes will relfect on 
     
     Post.search.for("turkey").each { |post| puts post.title }
 
-Classes with Enygma::Resource can call `include` to include assocations with their results.
+If a class includes Enygma::Resource, it can only search on one table at a time (meaning that it can only return records of a single type), but can still search for those records using multiple indexes. For example:
 
-    Post.search.for("turkey").include(:comments)
+    class Post < ActiveRecord::Base
+      include Enygma::Resource
+      
+      configure_enygma do
+        index :posts
+        index :posts_delta
+      end
+    end
 
-More in-depth per-adapter superpowers detailed below:
+More in-depth per-adapter documentation detailed below:
 
 #### ActiveRecord::Base ####
 
-An ActiveRecord::Base subclass that includes Enygma::Resource will, instead of returning the actual results of the database query, return an anonymous scope searching for record ids in the set of ids returned by Sphinx. This helps ease integration with will\_paginate, as well as allowing the appending of additional named\_scopes (should you want to).
+An ActiveRecord::Base subclass that includes Enygma::Resource will, instead of returning the actual results of the database query, return an anonymous scope searching for record ids in the set of ids returned by Sphinx. This helps ease integration with will\_paginate, as well as allowing the appending of additional named\_scopes.
+
+For example, to get all Models and their Associations in one go:
+
+    Model.search.for("turkey").all(:include => :association)
 
 #### Sequel::Model ####
 
@@ -136,3 +164,23 @@ Like above, a Sequel::Model with Enygma::Resource will not automatically kick of
 #### Datamapper ####
 
 Nothing special about Datamapper so far.
+
+### Using Enygma in a controller ###
+
+What follows is an example of using Enygma in an ActionController::Base subclass in a Rails project, but it should apply to most any controller (or any class, for that matter).
+
+    class PostsController < ApplicationController
+      include Enygma
+    
+      configure_enygma do
+        adapter   :active_record
+        database  Post
+        table     :posts
+        index     :posts
+        index     :posts_delta
+      end
+      
+      def index
+        @posts = search(:posts).for(params[:search]).all(:include => :comments)
+      end
+    end
