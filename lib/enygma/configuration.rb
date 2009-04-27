@@ -1,5 +1,8 @@
 module Enygma
   
+  # An Enygma::Configuration object holds the data needed to perform a search query, but
+  # without the query-specific parameters. You can create a Configuration object and use it
+  # to configure numerous Search object with the same settings.
   class Configuration
     
     class InvalidAdapterName < StandardError
@@ -26,21 +29,34 @@ module Enygma
       end
     end
     
-    ADAPTERS = [ :sequel, :active_record, :datamapper ]
+    # The symbol names of the valid adapter types.
+    ADAPTERS = [ :sequel, :active_record, :datamapper, :memcache, :berkeley, :tokyo_cabinet ]
     
-    @@index_suffix = '_idx'
+    # If all your Sphinx index names end with the same suffix (default is '_idx'), you can refer
+    # to them just by their base name.
+    #
+    # For example, if you have two indexes names 'posts_index' and 'comments_index', declaring the
+    # Enygma::Configuration.index_suffix = '_index' will allow you to refer to those indexes as
+    # just :posts and :comments respectively. Such as in
+    #     search(:posts).for("turkey").using_indexes(:posts, :comments)    
     def self.index_suffix(suffix = nil)
       return @@index_suffix if suffix.nil?
       @@index_suffix = suffix
     end
+    @@index_suffix = '_idx'
     
-    @@target_attr = 'item_id'
+    # The target_attr is the Sphinx attribute that points to the identifier for the original record
+    # (usually the record's id). After querying Sphinx, Enygma will use the values returned for this
+    # attribute to fetch records from the database. Defaults to 'item_id'.
     def self.target_attr(name = nil)
       return @@target_attr if name.nil?
       @@target_attr = name
     end
+    @@target_attr = 'item_id'
     
-    @@adapter = nil
+    # If you're using Enygma in a bunch of different places and always using the same adapter,
+    # you can declare it globally. New Configuration objects will default to using the named
+    # adapter.
     def self.adapter(name = nil)
       return @@adapter if name.nil?
       if name == :none
@@ -59,20 +75,25 @@ module Enygma
       when :datamapper
         require 'enygma/adapters/datamapper'
         @@adapter = Enygma::Adapters::DatamapperAdapter.new      
+      when :memcache
+        require 'enygma/adapters/memcache'
+        @@adapater = Enygma::Adapters::MemcacheAdapter.new
+      when :berkeley
+        require 'enygma/adapters/berkeley'
+        @@adapater = Enygma::Adapters::BerkeleyAdapter.new
+      when :tokyo_cabinet
+        require 'enygma/adapters/tokyo_cabinet'
+        @@adapater = Enygma::Adapters::TokyoCabinetAdapter.new
       end
     end
+    @@adapter = nil
     
-    @@database = nil    
-    def self.database(db = nil)
-      return @@database if db.nil?
-      raise AdapterNotSet unless @@adapter
-      @@database = @@adapter.connect!(db)
-    end
-    
-    @@sphinx = { :port => 3312, :host => "localhost" }
+    # Sets the global port and host configuration for Sphinx.
+    # Defaults to { :port => 3312, :host => "localhost" }
     def self.sphinx
       @@sphinx
     end
+    @@sphinx = { :port => 3312, :host => "localhost" }
     class << @@sphinx
       def port(portname = nil)
         return self[:port] if portname.nil?
@@ -85,29 +106,30 @@ module Enygma
       end
     end
     
+    # Evals the block against the Enygma::Configuration class to set global configuration.
     def self.global(&config)
       self.instance_eval(&config)
     end
     
-    attr_reader :database, :adapter, :tables, :indexes, :target_attr, :match_mode, :weights, :latitude, :longitude, :resource
+    attr_reader :adapter, :table, :indexes, :target_attr, :match_mode, :weights, :latitude, :longitude, :resource
     
-    def initialize
+    def initialize(&block)
       @adapter      = @@adapter
-      @database     = @@database
-      @tables       = []
-      @indexes      = {}
+      @table        = nil
+      @indexes      = []
       @target_attr  = @@target_attr
       @match_mode   = :all
       @weights      = {}
       @latitude     = 'lat'
       @longitude    = 'lng'
       @resource     = false
+      @key_prefix   = nil
+      instance_eval(&block) if block_given?
     end
     
     def adapter(name = nil)
       return @adapter if name.nil?
       if name == :none
-        @database = nil
         @adapter = nil
         return @adapter
       end
@@ -121,38 +143,46 @@ module Enygma
         @adapter = Enygma::Adapters::ActiveRecordAdapter.new
       when :datamapper
         require 'enygma/adapters/datamapper'
-        @adapter = Enygma::Adapters::DatamapperAdapter.new      
-      end      
-    end
-    
-    def database(db = nil)
-      return @database if db.nil?
-      raise AdapterNotSet unless @adapter
-      @database = @adapter.connect!(db)
-    end
-    
-    def table(table_name, options = {})
-      @tables << table_name unless @tables.include?(table_name)
-      raise TooManyTables if @resource && @tables.size > 1
-      if options[:index] || options[:indexes]
-        idxs = options[:index] || options[:indexes]
-        @indexes[table_name] = [ *idxs ].collect { |idx| Enygma.indexify(idx) }
-      # elsif !options[:skip_index]
-      #   idx = Enygma.indexify(table_name)
-      #   @indexes[table_name] = [ idx ]
+        @adapter = Enygma::Adapters::DatamapperAdapter.new
+      when :memcache
+        require 'enygma/adapters/memcache'
+        @adapter = Enygma::Adapters::MemcacheAdapter.new
+      when :berkeley
+        require 'enygma/adapters/berkeley'
+        @adapter = Enygma::Adapters::BerkeleyAdapter.new
+      when :tokyo_cabinet
+        require 'enygma/adapters/tokyo_cabinet'
+        @adapter = Enygma::Adapters::TokyoCabinetAdapter.new
       end
-      return @tables
+    end
+    
+    def datastore(store)
+      raise AdapterNotSet unless @adapter
+      @adapter.connect!(store)
+    end
+    
+    def key_prefix(prefix = nil)
+      return @key_prefix if prefix.nil?
+      @key_prefix = prefix
+    end
+    
+    def table(table_name = nil, options = {})
+      return @table if table_name.nil?
+      @table = table_name
+      if idxs = options[:index] || options[:indexes]
+        idx_names = [ *idxs ].collect { |idx| Enygma.indexify(idx) }
+        @indexes += idx_names
+      end
+      return @table
     end
     
     def weight(attribute, value)
       @weights[attribute.to_s] = value
     end
     
-    def index(index, table = nil)
-      raise AmbiguousIndex if table.nil? && @tables.size != 1
-      table ||= @tables.first
-      @indexes[table] ||= []
-      @indexes[table] << Enygma.indexify(index)
+    def index(index)
+      @indexes << Enygma.indexify(index)
+      return @indexes
     end
     
     def match_mode(mode = nil)
@@ -165,19 +195,8 @@ module Enygma
       @target_attr = name
     end
     
-    def resource(bool = nil)
-      return @resource if bool.nil?
-      @resource = bool
-    end
-    
-    def resource?
-      @resource
-    end
-    
     def sphinx
       @@sphinx
-    end
-    
+    end    
   end
-  
 end

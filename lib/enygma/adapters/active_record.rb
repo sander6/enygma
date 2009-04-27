@@ -6,20 +6,16 @@ module Enygma
     
     class ActiveRecordAdapter < Enygma::Adapters::AbstractAdapter
       
-      class InvalidActiveRecordDatabase < StandardError
-        def message
-          "The provided database object isn't an ActiveRecord::Base subclass!"
+      def connect!(datastore)
+        unless datastore.is_a?(Class) && datastore.ancestors.include?(ActiveRecord::Base)
+          raise InvalidDatabase, "#{datastore.inspect} is not an ActiveRecord::Base subclass!"
         end
-      end
-
-      def connect!(klass)        
-        raise InvalidActiveRecordDatabase unless klass.is_a?(Class) && klass.ancestors.include?(ActiveRecord::Base)
-        @database = klass
+        @datastore = datastore
       end
       
-      def query(*args)
-        options = args.extract_options!
-        @database.scoped(:conditions => { :id => options[:ids] })
+      def query(args = {})
+        connect!(args[:datastore])
+        @datastore.scoped(:conditions => { :id => args[:ids] })
       end
       
       def get_attribute(record, attribute)

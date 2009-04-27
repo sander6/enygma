@@ -5,26 +5,21 @@ module Enygma
     
     class SequelAdapter < Enygma::Adapters::AbstractAdapter
       
-      def connect!(db)
-        @database = case db
-        when Sequel::Model
-          @table = db.table_name
-          db.db
-        when :sqlite
-          Sequel.sqlite
-        else
-          Sequel.connect(db)
-        end
-      end
-      
-      def query(*args)
-        options = args.last.is_a?(Hash) ? args.pop : {}
-        @database[options[:table] || @table].filter(:id => options[:ids])
-      end
-      
-      def get_attribute(record, attribute)
-        record[attribute]
-      end
+      # def connect!(datastore)
+      #   @datastore = case datastore
+      #   when Sequel::Model
+      #     @table = datastore.table_name
+      #     datastore.db
+      #   end
+      # end
+      # 
+      # def query(args = {})
+      #   @datastore[args[:datastore]].filter(:id => args[:ids])
+      # end
+      # 
+      # def get_attribute(record, attribute)
+      #   record[attribute]
+      # end
       
     end
     
