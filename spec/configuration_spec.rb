@@ -2,6 +2,33 @@ require File.expand_path(File.dirname(__FILE__) + '/spec_helper')
 
 describe Enygma::Configuration do
   
+  describe Enygma::Configuration::InvalidAdapterName do
+    it "should be raised when the adapter is set to something not supported" do
+      lambda { Enygma::Configuration.adapter(:skull_of_orm) }.should raise_error(Enygma::Configuration::InvalidAdapterName)
+    end
+    
+    it "should come with a message along the lines of 'Invalid adapter type!'" do
+      Enygma::Configuration::InvalidAdapterName.new.message.should =~ Regexp.new("Invalid adapter type!")
+    end
+  end
+
+  describe Enygma::Configuration::AdapterNotSet do
+    before do
+      @config = Enygma::Configuration.new
+    end
+
+    it "should be raised when trying to connect to a database when an adapter isn't set" do
+      lambda {
+        @config.adapter(:none)
+        @config.datastore("postgres://user@localhost/database")
+      }.should raise_error(Enygma::Configuration::AdapterNotSet)
+    end
+    
+    it "should come with a message along the lines of 'You haven't chosen an adatper to use.'" do
+      Enygma::Configuration::AdapterNotSet.new.message.should =~ Regexp.new("You haven't chosen an adapter to use.")
+    end
+  end
+  
   describe "class variables" do
     
     describe "@@index_suffix" do
@@ -50,31 +77,6 @@ describe Enygma::Configuration do
         Enygma::Configuration.adapter(:none)
         Enygma::Configuration.adapter.should be_nil
       end
-      
-      it "should disconnect from the database if passed :none" do
-        Enygma::Configuration.adapter(:sequel)
-        Enygma::Configuration.database(:sqlite)
-        Enygma::Configuration.database.should_not be_nil
-        Enygma::Configuration.adapter(:none)
-        Enygma::Configuration.database.should be_nil
-      end
-    end
-    
-    describe "@@database" do
-      it "should default to nil" do
-        Enygma::Configuration.database.should be_nil
-      end
-      
-      it "should be set with .database" do
-        Enygma::Configuration.adapter(:sequel)
-        Enygma::Configuration.database(:sqlite)
-        Enygma::Configuration.database.should be_a_kind_of(Sequel::Database)
-      end
-      
-      it "should raise an error if the adapter isn't set" do
-        Enygma::Configuration.adapter(:none)
-        lambda { Enygma::Configuration.database(:sqlite) }.should raise_error(Enygma::Configuration::AdapterNotSet)
-      end
     end
     
     describe "@@sphinx" do
@@ -116,14 +118,12 @@ describe Enygma::Configuration do
         index_suffix  '_index'
         target_attr   'record_id'
         adapter       :sequel 
-        database      :sqlite
         sphinx.port   303
         sphinx.host   'g.host'
       end
       Enygma::Configuration.index_suffix.should == '_index'
       Enygma::Configuration.target_attr.should == 'record_id'
       Enygma::Configuration.adapter.should be_an_instance_of(Enygma::Adapters::SequelAdapter)
-      Enygma::Configuration.database.should be_a_kind_of(Sequel::Database)
       Enygma::Configuration.sphinx.should == { :port => 303, :host => 'g.host' }
     end
   end
@@ -134,27 +134,23 @@ describe Enygma::Configuration do
         index_suffix  '_index'
         target_attr   'record_id'
         adapter       :sequel 
-        database      :sqlite
         sphinx.port   303
         sphinx.host   'g.host'        
       end
       @config = Enygma::Configuration.new
     end
     
-    it "should set @database to @@database" do
-      @config.database.should == Enygma::Configuration.database
-    end
-    
     it "should set @adapter to @@adapter" do
       @config.adapter.should == Enygma::Configuration.adapter
     end
     
-    it "should set @tables to []" do
-      @config.tables.should == []
+    it "should set @table to nil" do
+      @config.table.should be_nil
     end
     
-    it "should set @indexes to {}" do
-      @config.indexes.should == {}
+    it "should set @indexes to []" do
+      @config.indexes.should be_an_instance_of(Array)
+      @config.indexes.should be_empty
     end
     
     it "should set @target_attr to @@target_attr" do
@@ -189,37 +185,10 @@ describe Enygma::Configuration do
       @config = Enygma::Configuration.new
     end
     
-    it "should add the table name given to the array of tables" do
+    it "should set the name as the default table" do
       @config.table :things
-      @config.tables.should include(:things)
-    end
-    
-    it "should the table name to the hash of indexes" do
-      @config.table :things
-      @config.indexes.should have_key(:things)
-    end
-    
-    it "should interpolate the index name for the table from the table name and default index_suffix" do
-      Enygma::Configuration.index_suffix '_idx'
-      @config.table :things
-      @config.indexes[:things].should include('things_idx')
-    end
-    
-    it "should add the index name (verbatim) given by :index" do
-      @config.table :things, :index => :thing_index
-      @config.indexes[:things].should include('thing_index')
-    end
-    
-    it "should add the index names (verbatim) given by :indexes" do
-      @config.table :things, :indexes => [ :thing_index, :thing_nicknames_index ]
-      @config.indexes[:things].should include('thing_index')
-      @config.indexes[:things].should include('thing_nicknames_index')
-    end
-    
-    it "should not add the index if :skip_index is true" do
-      @config.table :things, :skip_index => true
-      @config.indexes.should_not have_key(:things)
-    end
+      @config.table.should == :things
+    end    
   end
   
   describe "index" do
@@ -229,9 +198,8 @@ describe Enygma::Configuration do
     end
     
     it "should add the index name, massaged through Enygma.indexify, to the named table's indexes" do
-      @config.index :things, :thing_nicknames
-      @config.indexes.should have_key(:things)
-      @config.indexes[:things].should include('thing_nicknames_idx')
+      @config.index :things
+      @config.indexes.should include(Enygma.indexify(:things))
     end
   end
   

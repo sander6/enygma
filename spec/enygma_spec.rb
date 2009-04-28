@@ -7,9 +7,9 @@ describe Enygma do
       class Thing; end
     end
     
-    it "should set @enygma_configuration on the base class" do
+    it "should set <class_name>_ENYGMA_CONFIGURATION on the base class" do
       Thing.__send__(:include, Enygma)
-      Thing.instance_variable_defined?(:@enygma_configuration).should be_true
+      Thing.const_defined?(:THING_ENYGMA_CONFIGURATION).should be_true
     end
     
     it "should extend the base class with Enygma::ClassMethods" do
@@ -23,8 +23,8 @@ describe Enygma do
       class Thing; include Enygma; end
     end
     
-    it "should return the class' @enygma_configuration" do
-      Thing.enygma_configuration.should == Thing.instance_variable_get(:@enygma_configuration)
+    it "should return the class' <class_name>_ENYGMA_CONFIGURATION" do
+      Thing.enygma_configuration.should == Thing.const_get(:THING_ENYGMA_CONFIGURATION)
     end
     
     it "should be an instance of Enygma::Configuration" do
@@ -45,31 +45,29 @@ describe Enygma do
   
   describe "search" do
     before(:each) do
-      stub_sphinx!
       class Thing; include Enygma; end
     end
     
     it "should return an instance of Enygma::Search" do
-      Enygma::Search.expects(:new)
-      Thing.search
+      Thing.search.should be_an_instance_of(Enygma::Search)
     end
   end
   
   describe ".indexify" do
     before(:each) do
-      Enygma::Configuration.index_suffix '_idx'
+      Enygma::Configuration.index_suffix '_index'
     end
     
     it "should append the default index suffix to the argument" do
-      Enygma.indexify('butter').should == 'butter_idx'
+      Enygma.indexify('butter').should == 'butter_index'
     end
     
     it "should convert symbols into strings" do
-      Enygma.indexify(:butter).should == 'butter_idx'
+      Enygma.indexify(:butter).should == 'butter_index'
     end
     
     it "should leave arguments that already end in the default suffix alone" do
-      Enygma.indexify(:butter_idx).should == 'butter_idx'
+      Enygma.indexify(:butter_index).should == 'butter_index'
     end
   end
   
