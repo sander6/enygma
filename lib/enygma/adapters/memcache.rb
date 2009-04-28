@@ -10,13 +10,13 @@ module Enygma
         when MemCache
           datastore
         else
-          Memcache.new(datastore)
+          MemCache.new(datastore)
         end
       end
       
       def query(args = {})
-        connect!(args[:datastore])
-        @datastore.get_multi(*args[:ids]).values
+        ids = args.has_key?(:key_prefix) ? args[:ids].collect {|i| "#{args[:key_prefix]}#{i}"} : args[:ids]
+        @datastore.get_multi(*ids).values
       end
       
     end
