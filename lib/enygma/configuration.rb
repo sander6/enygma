@@ -113,7 +113,7 @@ module Enygma
     
     attr_reader :adapter, :table, :indexes, :target_attr, :match_mode, :weights, :latitude, :longitude, :resource
     
-    def initialize(&block)
+    def initialize(attributes = {}, &block)
       @adapter      = @@adapter
       @table        = nil
       @indexes      = []
@@ -124,7 +124,10 @@ module Enygma
       @longitude    = 'lng'
       @resource     = false
       @key_prefix   = nil
-      instance_eval(&block) if block_given?
+      attributes.each do |name, value|
+        self.__send__(name, value)
+      end
+      self.instance_eval(&block) if block
     end
     
     def adapter(name = nil)

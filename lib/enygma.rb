@@ -18,7 +18,8 @@ module Enygma
   class << self
     
     def included(base)
-      base.const_set(:"#{base.name.gsub(/(?!^)([A-Z])/, '_\1').upcase}_ENYGMA_CONFIGURATION", Enygma::Configuration.new)
+      config_name = :"#{base.name.gsub(/(?!^)([A-Z])/, '_\1').upcase}_ENYGMA_CONFIGURATION"
+      base.const_set(config_name, Enygma::Configuration.new) unless base.const_defined?(config_name)
       base.__send__(:extend, Enygma::ClassMethods)
       if defined?(ActiveRecord) && base.ancestors.include?(ActiveRecord::Base)
         configure_for_active_record(base)
