@@ -44,6 +44,15 @@ module Enygma
       :attr   => Sphinx::Client::SPH_GROUPBY_ATTR,
       :pair   => Sphinx::Client::SPH_GROUPBY_ATTRPAIR
     }
+
+    SORT_MODES = {
+      :relevance      => Sphinx::Client::SPH_SORT_RELEVANCE,
+      :date_desc      => Sphinx::Client::SPH_SORT_ATTR_DESC,
+      :date_asc       => Sphinx::Client::SPH_SORT_ATTR_ASC,
+      :time_segments  => Sphinx::Client::SPH_SORT_TIME_SEGMENTS,
+      :extended       => Sphinx::Client::SPH_SORT_EXTENDED,
+      :expression     => Sphinx::Client::SPH_SORT_EXPR
+    }
        
     def initialize(*args, &block)
       overrides = args.last.is_a?(Hash) ? args.pop : {}
@@ -70,6 +79,11 @@ module Enygma
       
       @latitude   = config.latitude
       @longitude  = config.longitude
+
+      @limit      = @sphinx.instance_variable_get(:@limit)
+      @offset     = @sphinx.instance_variable_get(:@offset)
+      @max        = @sphinx.instance_variable_get(:@maxmatches)
+      @cutoff     = @sphinx.instance_variable_get(:@cutoff)
 
       @return_attributes  = []
 
@@ -138,30 +152,98 @@ module Enygma
       self
     end
     
+    def sort_by(type, sort_by = '')
+      case type
+      when :date
+        if arg == :asc
+          sort_mode = :date_asc
+        else
+          sort_mode = :date_desc
+        end
+      when :time
+        sort_mode = :time_segments
+      when :expression
+        sort_mode = :expression
+      when String
+        sort_mode = :extended
+        sort_by = type
+      else
+        sort_mode = :relevance
+      end
+      @sphinx.SetSortMode(SORT_MODES[sort_mode], sort_by)
+      self
+    end
+    
     def select(*attributes)
       @sphinx.SetSelect(attributes.join(','))
+      self
+    end
+    
+    def limit(value)
+      @limit = value
+      set_limits
+      self
+    end
+    
+    def offset(value)
+      @offset = value
+      set_limits
+      self
+    end
+    
+    def max(value)
+      @max = value
+      set_limits
+      self
+    end
+    
+    def cutoff(value)
+      @cutoff = value
+      set_limits
       self
     end
     
     def within(distance)
       Enygma::GeoDistanceProxy.new(self, distance)
     end
-        
+    
+    def anchor(point_or_lat, lng = nil)
+      if lng.nil?
+        if point_or_lat.respond_to?(:lat) && point_or_lat.respond_to?(:lng)
+          lat, lng = point_or_lat.lat, point_or_lat.lng
+        elsif point_or_lat.respond_to?(:coordinates) && point_or_lat.coordinates.respond_to?(:lat) && point_or_lat.coordinates.respond_to?(:lng)
+          lat, lng = point_or_lat.coordinates.lat, point_or_lat.coordinates.lng
+        elsif point_or_lat.respond_to?(:point) && point_or_lat.point.respond_to?(:lat) && point_or_lat.point.respond_to?(:lng)
+          lat, lng = point_or_lat.point.lat, point_or_lat.point.lng
+        else
+          raise ArgumentError, "#{point_or_lat.inspect} doesn't seem to be a geometry-enabled object!"
+        end
+      else
+        lat, lng = point_or_lat, lng
+      end
+      geo_anchor(lat, lng)
+      self
+    end
+    
     private
     
-      def geo_anchor(lat, lng)
-        @sphinx.SetGeoAnchor(@latitude, @longitude, lat, lng)      
-      end
-    
-      def query_sphinx
-        sphinx_response = @sphinx.Query(@term, @indexes.join(', '))
-        raise InvalidSphinxQuery unless sphinx_response
-        sphinx_response
-      end
-        
-      def query_database(results)
-        ids = results['matches'].collect { |match| match['attrs'][@target_attr] }.uniq
-        @database[:adapter].query(:table => @database[:table], :ids => ids, :key_prefix => @key_prefix)
-      end
+    def geo_anchor(lat, lng)
+      @sphinx.SetGeoAnchor(@latitude, @longitude, lat, lng)      
+    end
+  
+    def set_limits
+      @sphinx.SetLimits(@offset, @limit, @max, @cutoff)
+    end
+  
+    def query_sphinx
+      sphinx_response = @sphinx.Query(@term, @indexes.join(', '))
+      raise InvalidSphinxQuery unless sphinx_response
+      sphinx_response
+    end
+      
+    def query_database(results)
+      ids = results['matches'].collect { |match| match['attrs'][@target_attr] }.uniq
+      @database[:adapter].query(:table => @database[:table], :ids => ids, :key_prefix => @key_prefix)
+    end
   end  
 end
