@@ -30,19 +30,17 @@ That being said, Enygma plans to eventually support guided Sphinx configuration.
 Take your favorite class and `include Enygma`. Then declare your global and class-specific configuration. For example:
 
     Enygma::Configuration.global do
-      adapter   :sequel
-      database  "postgres://user@localhost/db"
+      adapter       :sequel
+      datastore     "postgres://user@localhost/db"
+      sphinx.host   'localhost'
+      sphinx.port   3312
     end
 
     class SearchyThing
       include Enygma
         
-      configure_enygma do
-        sphinx[:host] = 'localhost'
-        sphinx[:port] = 3312
-        
-        table :posts,     :indexes => [ :posts_idx, :comments_idx ]
-        table :comments,  :indexes => [ :comments_idx ]
+      configure_enygma do        
+        table :posts, :indexes => [ :posts, :comments ]
       end    
     end
 
@@ -50,21 +48,33 @@ This appends the `search` method to the included class.
 
 #### Searching ####
 
-To search all tables:
+To search, call the `search` method on a class that included Enygma. The way searching works depends a lot on both the kind of class you've included Enygma in and the type of datastore adapter you're using. The fundamentals are the same, though.
 
-    SearchyThing.search.for("funtimes")
+For a plain ol' Ruby class, like a controller, call `search` and tell it where to go find the actual objects after it's retrieved the pointers from Sphinx. An example using the `active_record` adapter:
 
-This returns a hash of results for each table.
+    class PostsController < ApplicationController
+      include Enygma
+      
+      configure_enygma do
+        adapter   :active_record
+      end
+    
+      def index
+        @posts = search(Post).for(params[:term]).using_index(:posts)
+      end
+    end
+    
+An example using the `sequel` adapter:
 
-    # => { :posts => [...], :comments => [...] }
+    include Enygma
 
-To search a specific table:
+    configure_enygma do
+      adapter :sequel
+    end
 
-    SearchyThing.search(:posts).for("funtimes")
-
-This just returns an array of posts (hashes or instances of a class, depending on your adapter).
-
-    # => [ { :id => 1, ... }, { :id => 2, ... }, ... ]
+    get '/posts' do
+      @posts = search(:posts).for(params[:term]).using_index(:posts)
+    end
 
 Adding filters:
 
