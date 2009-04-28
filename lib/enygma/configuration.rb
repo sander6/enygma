@@ -122,7 +122,6 @@ module Enygma
       @weights      = {}
       @latitude     = 'lat'
       @longitude    = 'lng'
-      @resource     = false
       @key_prefix   = nil
       attributes.each do |name, value|
         self.__send__(name, value)
