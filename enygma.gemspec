@@ -1,7 +1,7 @@
 Gem::Specification.new do |s|
     s.platform          =   Gem::Platform::RUBY
     s.name              =   "enygma"
-    s.version           =   "0.0.6"
+    s.version           =   "0.0.7"
     s.author            =   "Sander Hartlage"
     s.email             =   "sander6 at github dot com"
     s.homepage          =   "http://github.com/sander6/enygma"
