@@ -126,6 +126,7 @@ module Enygma
     alias_method :using_index, :using_indexes
         
     def filter(attribute, values, exclude = false)
+      attribute = attribute.to_s
       case values
       when Array
         @sphinx.SetFilter(attribute, values, exclude)
