@@ -1,12 +1,17 @@
 module Enygma
   class GeoDistanceProxy
-    UNIT_CONVERSION = {
+    
+    class InvalidUnits < StandardError; end
+    
+    failproc = Proc.new { |d| raise(InvalidUnits, "\"#{d}\" is not a supported distance unit.") }
+    
+    UNIT_CONVERSION = Hash.new(failproc).merge({
       :meters     => Proc.new { |d| d },
       :kilometers => Proc.new { |d| d / 1000.0 },
       :feet       => Proc.new { |d| d * 0.3048 },
       :miles      => Proc.new { |d| d / 1609.344 },
-      :yards      => Proc.new { |d| d * 0.9144 },
-    }
+      :yards      => Proc.new { |d| d * 0.9144 }
+    })
   
     def initialize(delegate, distance)
       @delegate = delegate

@@ -22,9 +22,7 @@ module Enygma
         base.__send__(:include, Enygma)
         base.configure_enygma do
           adapter   :active_record
-          database  base
-          table     base.table_name.to_sym
-          resource  true
+          table     base
         end
       end
     
@@ -32,9 +30,7 @@ module Enygma
         base.__send__(:include, Enygma)
         base.configure_enygma do
           adapter   :sequel
-          database  base
-          table     base.table_name.to_sym
-          resource  true
+          table     base
         end
       end
     

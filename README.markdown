@@ -2,6 +2,8 @@
 
 *NOTE: Enygma is currently in a state of disarray, since I hacked it together just enough to work with ActiveRecord. The specs shouldn't run and coverage is inexcusable, which I feel bad about. I'll clean things up incrementally. Until then, consider it in alpha.*
 
+*ANOTHER NOTE: This documentation is unfinished and a little wanky. I'll improve it when time allows. The best way right now to figure out how to use Enygma is to look through the code.*
+
 Sphinx is awesome, but it's sometimes kind of unwieldly to use, requiring a bunch of moving parts just to see what a certain Sphinx query would yank out of your database. Some solutions for working with Sphinx exist, but it's hard to justify spinning up an entire new Rails project just to search through some HTML documents you've got lying on your hard drive.
 
 For this reason, Enygma exists to be an awesome little Sphinx toolset usable just about anywhere.
@@ -27,22 +29,21 @@ That being said, Enygma plans to eventually support guided Sphinx configuration.
 
 #### Configuration ####
 
-Take your favorite class and `include Enygma`. Then declare your global and class-specific configuration. For example:
+Take your favorite class and `include Enygma`, then give it class-level configuration by calling `configure_enygma`. This will save a constant in the class called `<class_name>_ENYGMA_CONFIGURATION` holding the configuration
+
 
     Enygma::Configuration.global do
-      adapter   :sequel
-      database  "postgres://user@localhost/db"
+      adapter       :sequel
+      datastore     "postgres://user@localhost/db"
+      sphinx.host   'localhost'
+      sphinx.port   3312
     end
 
     class SearchyThing
       include Enygma
         
-      configure_enygma do
-        sphinx[:host] = 'localhost'
-        sphinx[:port] = 3312
-        
-        table :posts,     :indexes => [ :posts_idx, :comments_idx ]
-        table :comments,  :indexes => [ :comments_idx ]
+      configure_enygma do        
+        table :posts, :indexes => [ :posts, :comments ]
       end    
     end
 
@@ -50,21 +51,33 @@ This appends the `search` method to the included class.
 
 #### Searching ####
 
-To search all tables:
+To search, call the `search` method on a class that included Enygma. The way searching works depends a lot on both the kind of class you've included Enygma in and the type of datastore adapter you're using. The fundamentals are the same, though.
 
-    SearchyThing.search.for("funtimes")
+For a plain ol' Ruby class, like a controller, call `search` and tell it where to go find the actual objects after it's retrieved the pointers from Sphinx. An example using the `active_record` adapter:
 
-This returns a hash of results for each table.
+    class PostsController < ApplicationController
+      include Enygma
+      
+      configure_enygma do
+        adapter   :active_record
+      end
+    
+      def index
+        @posts = search(Post).for(params[:term]).using_index(:posts)
+      end
+    end
+    
+An example using the `sequel` adapter:
 
-    # => { :posts => [...], :comments => [...] }
+    include Enygma
 
-To search a specific table:
+    configure_enygma do
+      adapter :sequel
+    end
 
-    SearchyThing.search(:posts).for("funtimes")
-
-This just returns an array of posts (hashes or instances of a class, depending on your adapter).
-
-    # => [ { :id => 1, ... }, { :id => 2, ... }, ... ]
+    get '/posts' do
+      @posts = search(:posts).for(params[:term]).using_index(:posts)
+    end
 
 Adding filters:
 
@@ -182,5 +195,31 @@ What follows is an example of using Enygma in an ActionController::Base subclass
       
       def index
         @posts = search(:posts).for(params[:search]).all(:include => :comments)
+      end
+    end
+
+
+## Non-relational Database Stores ##
+
+Enygma is so awesome that you can use it to hook Sphinx up to non-relational database stores and other data-storing structures, such as Memcache, Tokyo Cabinet, and BerkeleyDB (not currently implemented).
+
+Of course, Sphinx can't index content from one of these database types, so it's assumed that the data has been prepopulated and that you have already set up a system to keep the original data source (the one Sphinx indexed from) and the data store in sync.
+
+For example, assume you've taken a large chunk of mostly-static data from your database and put it as marshalled hashes into a Tokyo Cabinet. You can tell Enygma to to query Sphinx for a term, then get the records from the Tokyo Cabinet.
+
+Let's assume that, nightly, you reindex your users table and stuff a bunch of hashes structured like `{ :id => <id>, :username => <username>, :email => <email> }` into a Tokyo Cabinet file called 'usernames.tch', each under the key `user:<id>`. You want to set up a controller to autocomplete the users' names, and you want it to be fast. You can tell Enygma to look for these hashes in the (lightning-fast) Tokyo Cabinet instead of your (glacially-slow) database like so:
+
+    class UserNamesAutocompletionsController < ApplicationController
+      include Enygma
+      
+      configure_enygma do
+        adapter     :tokyo_cabinet
+        database    'usernames.tch'
+        key_prefix  'user:'
+        index       :users
+      end
+      
+      def index
+        @usernames = search.for(params[:search]).run
       end
     end
