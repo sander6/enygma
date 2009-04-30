@@ -7,7 +7,7 @@ Gem::Specification.new do |s|
     s.homepage          =   "http://github.com/sander6/enygma"
     s.rubyforge_project =   ""
     s.summary           =   "A Sphinx search toolset"
-    s.require_path      =   "lib"
+    s.require_path      =   ["lib"]
     s.has_rdoc          =   true
     s.extra_rdoc_files  =   ["README.markdown"]
 end
