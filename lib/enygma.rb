@@ -39,14 +39,14 @@ module Enygma
     def configure_for_active_record(base)
       base.configure_enygma do
         adapter   :active_record
-        table     base
+        datastore base
       end
     end
   
     def configure_for_sequel_model(base)
       base.configure_enygma do
         adapter   :sequel
-        table     base
+        datastore base
       end
     end
   
