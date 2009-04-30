@@ -2,6 +2,8 @@
 
 *NOTE: Enygma is currently in a state of disarray, since I hacked it together just enough to work with ActiveRecord. The specs shouldn't run and coverage is inexcusable, which I feel bad about. I'll clean things up incrementally. Until then, consider it in alpha.*
 
+*ANOTHER NOTE: This documentation is unfinished and a little wanky. I'll improve it when time allows. The best way right now to figure out how to use Enygma is to look through the code.*
+
 Sphinx is awesome, but it's sometimes kind of unwieldly to use, requiring a bunch of moving parts just to see what a certain Sphinx query would yank out of your database. Some solutions for working with Sphinx exist, but it's hard to justify spinning up an entire new Rails project just to search through some HTML documents you've got lying on your hard drive.
 
 For this reason, Enygma exists to be an awesome little Sphinx toolset usable just about anywhere.
@@ -27,7 +29,8 @@ That being said, Enygma plans to eventually support guided Sphinx configuration.
 
 #### Configuration ####
 
-Take your favorite class and `include Enygma`. Then declare your global and class-specific configuration. For example:
+Take your favorite class and `include Enygma`, then give it class-level configuration by calling `configure_enygma`. This will save a constant in the class called `<class_name>_ENYGMA_CONFIGURATION` holding the configuration
+
 
     Enygma::Configuration.global do
       adapter       :sequel
@@ -192,5 +195,31 @@ What follows is an example of using Enygma in an ActionController::Base subclass
       
       def index
         @posts = search(:posts).for(params[:search]).all(:include => :comments)
+      end
+    end
+
+
+## Non-relational Database Stores ##
+
+Enygma is so awesome that you can use it to hook Sphinx up to non-relational database stores and other data-storing structures, such as Memcache, Tokyo Cabinet, and BerkeleyDB (not currently implemented).
+
+Of course, Sphinx can't index content from one of these database types, so it's assumed that the data has been prepopulated and that you have already set up a system to keep the original data source (the one Sphinx indexed from) and the data store in sync.
+
+For example, assume you've taken a large chunk of mostly-static data from your database and put it as marshalled hashes into a Tokyo Cabinet. You can tell Enygma to to query Sphinx for a term, then get the records from the Tokyo Cabinet.
+
+Let's assume that, nightly, you reindex your users table and stuff a bunch of hashes structured like `{ :id => <id>, :username => <username>, :email => <email> }` into a Tokyo Cabinet file called 'usernames.tch', each under the key `user:<id>`. You want to set up a controller to autocomplete the users' names, and you want it to be fast. You can tell Enygma to look for these hashes in the (lightning-fast) Tokyo Cabinet instead of your (glacially-slow) database like so:
+
+    class UserNamesAutocompletionsController < ApplicationController
+      include Enygma
+      
+      configure_enygma do
+        adapter     :tokyo_cabinet
+        database    'usernames.tch'
+        key_prefix  'user:'
+        index       :users
+      end
+      
+      def index
+        @usernames = search.for(params[:search]).run
       end
     end
