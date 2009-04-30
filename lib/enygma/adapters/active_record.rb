@@ -14,7 +14,6 @@ module Enygma
       end
       
       def query(args = {})
-        connect!(args[:datastore])
         @datastore.scoped(:conditions => { :id => args[:ids] })
       end
       
