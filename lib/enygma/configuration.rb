@@ -111,18 +111,20 @@ module Enygma
       self.instance_eval(&config)
     end
     
-    attr_reader :adapter, :table, :indexes, :target_attr, :match_mode, :weights, :latitude, :longitude, :resource
+    attr_reader :indexes, :weights, :index_weights, :latitude, :longitude
     
     def initialize(attributes = {}, &block)
-      @adapter      = @@adapter
-      @table        = nil
-      @indexes      = []
-      @target_attr  = @@target_attr
-      @match_mode   = :all
-      @weights      = {}
-      @latitude     = 'lat'
-      @longitude    = 'lng'
-      @key_prefix   = nil
+      @adapter        = @@adapter
+      @table          = nil
+      @indexes        = []
+      @target_attr    = @@target_attr
+      @match_mode     = :all
+      @fragment_mode  = :exact
+      @weights        = {}
+      @index_weights  = {}
+      @latitude       = 'lat'
+      @longitude      = 'lng'
+      @key_prefix     = nil
       attributes.each do |name, value|
         self.__send__(name, value)
       end
@@ -178,8 +180,12 @@ module Enygma
       return @table
     end
     
-    def weight(attribute, value)
-      @weights[attribute.to_s] = value
+    def weight(weights = {})
+      @weights = weights
+    end
+
+    def weight_index(indexes = {})
+      @index_weights = indexes
     end
     
     def index(index)
@@ -191,10 +197,25 @@ module Enygma
       return @match_mode if mode.nil?
       @match_mode = mode
     end
+
+    def fragment_mode(mode = nil)
+      return @fragment_mode if mode.nil?
+      @fragment_mode = mode
+    end
     
     def target_attr(name = nil)
       return @target_attr if name.nil?
       @target_attr = name
+    end
+    
+    def latitude_attr(name = nil)
+      return @latitude if name.nil?
+      @latitude = name
+    end
+    
+    def longitude_attr(name = nil)
+      return @longitude if name.nil?
+      @latitude = name
     end
     
     def sphinx

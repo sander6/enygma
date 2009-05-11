@@ -53,6 +53,18 @@ module Enygma
       :extended       => Sphinx::Client::SPH_SORT_EXTENDED,
       :expression     => Sphinx::Client::SPH_SORT_EXPR
     }
+
+    class InvalidFragementMatchingScheme < StandardError; end
+
+    frag_proc = Proc.new { |s| raise InvalidFragementMatchingScheme }
+    FRAGMENT_MODES = Hash.new(frag_proc).merge({
+      :exact    => Proc.new { |s| s },
+      :start    => Proc.new { |s| s.split(/\s+/).collect {|f| f + '*'}.join(' ') },
+      :end      => Proc.new { |s| s.split(/\s+/).collect {|f| '*' + f }.join(' ') },
+      :fragment => Proc.new { |s| s.split(/\s+/).collect {|f| '*' + f + '*' }.join(' ') },
+      :fuzzy    => Proc.new { |s| '*' + s.delete(' ').split(//).join('*') + '*' },
+      :textmate => Proc.new { |s| '*' + s.delete(' ').split(//).join('*') + '*' }
+    })
        
     def initialize(*args, &block)
       overrides = args.last.is_a?(Hash) ? args.pop : {}
@@ -71,11 +83,12 @@ module Enygma
       }
       @sphinx   = Sphinx::Client.new
 
-      @indexes      = config.indexes
-      @term         = overrides[:term] || ""
-      @target_attr  = config.target_attr
-      @match_mode   = MATCH_MODES[config.match_mode]
-      @key_prefix   = config.key_prefix || ''
+      @indexes        = config.indexes
+      @term           = overrides[:term] || ""
+      @target_attr    = config.target_attr
+      @match_mode     = MATCH_MODES[config.match_mode]
+      @fragment_mode  = config.fragment_mode
+      @key_prefix     = config.key_prefix || ''
       
       @latitude   = config.latitude
       @longitude  = config.longitude
@@ -84,6 +97,13 @@ module Enygma
       @offset     = @sphinx.instance_variable_get(:@offset)
       @max        = @sphinx.instance_variable_get(:@maxmatches)
       @cutoff     = @sphinx.instance_variable_get(:@cutoff)
+
+      @weights        = config.weights.inject({}) { |weights, (attr, weight)| weights.merge({ attr.to_s => weight })} || {}
+      @index_weights  = config.index_weights.inject({}) { |weights, (index, weight)| weights.merge({ Enygma.indexify(index) => weight })} || {}
+      @sphinx.SetFieldWeights(@weights)
+      @sphinx.SetIndexWeights(@index_weights)
+
+      @fields = []
 
       @return_attributes  = []
 
@@ -113,6 +133,11 @@ module Enygma
       self
     end
     
+    def in_fields(*fields)
+      @fields = fields
+      self
+    end
+    
     def using_match_mode(match_mode)
       @match_mode = MATCH_MODES[match_mode]
       @sphinx.SetMatchMode(@match_mode)
@@ -124,7 +149,12 @@ module Enygma
       self
     end
     alias_method :using_index, :using_indexes
-        
+    
+    def using_fragment_matching(mode)
+      @fragment_mode = mode
+      self
+    end
+    
     def filter(attribute, values, exclude = false)
       attribute = attribute.to_s
       case values
@@ -203,6 +233,18 @@ module Enygma
       set_limits
       self
     end
+
+    def weight(weights = {})
+      @weights.merge!(weights.inject({}) { |weights, (attr, weight)| weights.merge({ attr.to_s => weight })})
+      @sphinx.SetFieldWeights(@weights)
+      self
+    end
+
+    def weight_index(weights = {})
+      @index_weights.merge!(weights.inject({}) { |weights, (index, weight)| weights.merge({ Enygma.indexify(index) => weight })})
+      @sphinx.SetIndexWeights(@index_weights)
+      self
+    end
     
     def within(distance)
       Enygma::GeoDistanceProxy.new(self, distance)
@@ -237,7 +279,10 @@ module Enygma
     end
   
     def query_sphinx
-      sphinx_response = @sphinx.Query(@term, @indexes.join(', '))
+      query_string  = mutate_query_for_field_searching(@term)
+      query_string  = FRAGMENT_MODES[@fragment_mode][query_string]
+      query_indexes = @indexes.join(', ')
+      sphinx_response = @sphinx.Query(query_string, query_indexes)
       raise InvalidSphinxQuery unless sphinx_response
       sphinx_response
     end
@@ -245,6 +290,12 @@ module Enygma
     def query_database(results)
       ids = results['matches'].collect { |match| match['attrs'][@target_attr] }.uniq
       @database[:adapter].query(:table => @database[:table], :ids => ids, :key_prefix => @key_prefix)
+    end
+    
+    def mutate_query_for_field_searching(query)
+      return query if @fields.empty?
+      self.using_match_mode(:extended2)
+      "@(#{@fields.collect {|f| f.to_s}.join(',')}) #{query}"
     end
   end  
 end
